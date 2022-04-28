@@ -111,8 +111,6 @@ regionmap=reshape2::melt(regionmap, value.name = c("state"))
 names(regionmap) = c("state", "region")
 regionmap$state=tolower(regionmap$state)
 
-regionmap[which(regionmap$state == tolower("Washington")),2]
-
 map_states <- function(s) {
   s=tolower(str_trim(s))
   regionmap[which(regionmap$state == s),2]
@@ -130,7 +128,13 @@ data.table(Column=names(imputed_df[,drp_cols]),
 
 # correlation matrix ---------
 fsel=imputed_df[,drp_cols]
-fsel<-cbind(fsel, one_hot(as.data.table(as.factor(imputed_df$region))))
+
+fsel<-cbind(fsel,
+            one_hot(
+              as.data.table(
+                lapply(imputed_df[,c("region", "binnedInc")], as.factor)
+                )
+              ))
 
 fsel
 corMtrx <- cor(fsel)
