@@ -4,6 +4,7 @@
 librarian::shelf(rstudioapi,
                  renv,
                  mltools,
+                 GGally,
                  ggplot2,
                  ggcorrplot,
                  MASS,
@@ -120,6 +121,7 @@ imputed_df['region']=sapply(imputed_df$state, map_states)
 
 # Check for normality ----------------
 plot(Hmisc::describe(imputed_df)) 
+names(imputed_df)
 drp_cols=-c(9,13,32:34)
 data.table(Column=names(imputed_df[,drp_cols]),
            P=apply(imputed_df[,drp_cols], 2,
@@ -147,9 +149,9 @@ corr = round(cor(fsel), 2)
 ggcorrplot(corr,title="Correlation heatmap among cancer variables")
 
 # Attempt3-------
-subset.model=regsubsets(TARGET_deathRate~.,data=fsel, nbest=20,method=c("exhaustive"))
+subset.model=regsubsets(TARGET_deathRate~.,data=fsel,nbest=20,method=c("exhaustive"))
 summary(subset.model)
-
+# 
 plot(subset.model, scale="r2")
 plot(subset.model, scale="adjr2")
 plot(subset.model, scale="bic")
@@ -157,16 +159,50 @@ plot(subset.model, scale="Cp")
 
 features=c("incidenceRate","povertyPercent","PctHS18_24","PctBachDeg25_Over",
   "PctPrivateCoverage","PctEmpPrivCoverage","PctOtherRace","PctMarriedHouseholds",
-  "V1_Mid West", "V1_South",
+  "region_Mid West", "region_South",
   "TARGET_deathRate")
 
-ln=length(features)
-seq_along(features[-ln])
+imp_feat<-c("PctPublicCoverageAlone",
+            "povertyPercent",
+            "AvgHouseholdSize",
+            "PctUnemployed16_Over",
+            "PctBlack",
+            "PctHS18_24",
+            "TARGET_deathRate")
 
-models<-list()
-for(i in seq_along(features[-ln])){
-  models[[i]]<- lm(TARGET_deathRate~.,data=fsel[,features[c(1:i,ln)]])
+# length(intersect(names(fsel), features))
+# fsel[,features]
+
+do_model<-function(apply_feat) {
+  ln=length(apply_feat)
+  seq_along(apply_feat[-ln])
+  
+  models<-list()
+  for(i in seq_along(apply_feat[-ln])){
+    models[[i]]<- lm(TARGET_deathRate~.,data=fsel[,apply_feat[c(1:i,ln)]])
+  }
+  list(lapply(models,summary),
+  do.call(anova,models)
+  )
 }
-lapply(models,summary)
-lapply(models,anova)
+
+GGally::ggpairs(fsel[,features])
+summary(fsel[,features])
+
+do_model(features)
+# do_model(imp_feat)
+
+par(mfrow=c(2,2))
+plot(models[[10]]) 
+
+par(mfrow=c(1,1))
+
+results<-predict(models[[10]],fsel)
+data.frame(results,actual=fsel$TARGET_deathRate) %>%
+  ggplot(aes(x=results,y=actual)) + 
+  geom_point()+
+  stat_smooth(method="lm",show.legend = T)
+
+
+hist(fsel$TARGET_deathRate)
 
