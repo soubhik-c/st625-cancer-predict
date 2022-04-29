@@ -157,6 +157,25 @@ plot(subset.model, scale="adjr2")
 plot(subset.model, scale="bic")
 plot(subset.model, scale="Cp")
 
+#stepAIC
+step.model <- stepAIC(lm(TARGET_deathRate ~ ., data=fsel), direction = "both", 
+                      trace = F)
+summary(step.model)
+
+#olsrr
+reg=lm(TARGET_deathRate ~ ., data=fsel)
+summary(reg)
+bestsubset=ols_step_best_subset(reg)
+bestsubset
+allpos=ols_step_all_possible(reg)
+allpos
+plot(allpos)
+
+#RandomForest
+rPartMod <- train(TARGET_deathRate ~ ., data=fsel, method="RRF")
+rpartImp <- varImp(rPartMod)
+print(rpartImp)
+
 features=c("incidenceRate","povertyPercent","PctHS18_24","PctBachDeg25_Over",
   "PctPrivateCoverage","PctEmpPrivCoverage","PctOtherRace","PctMarriedHouseholds",
   "region_Mid West", "region_South",
