@@ -167,10 +167,10 @@ plot(subset.model, scale="adjr2")
 plot(subset.model, scale="bic")
 plot(subset.model, scale="Cp")
 
-#stepAIC
-step.model <- stepAIC(lm(TARGET_deathRate ~ ., data=fsel), direction = "both", 
-                      trace = F)
-summary(step.model)
+# #stepAIC
+# step.model <- stepAIC(lm(TARGET_deathRate ~ ., data=fsel), direction = "both", 
+#                       trace = F)
+# summary(step.model)
 
 #olsrr
 # reg=lm(TARGET_deathRate ~ ., data=fsel)
@@ -183,18 +183,18 @@ summary(step.model)
 
 #RandomForests
 # registerDoMC(cores=8)
-trmod <- train(TARGET_deathRate ~ ., 
-                  data=fsel,
-                  method="gbm",
-                  trControl=trainControl(
-                    method="repeatedcv",
-                    number=20,
-                    repeats = 3,
-                    allowParallel=T
-                  ),
-                )
-fselImp <- varImp(trmod)
-print(fselImp)
+# trmod <- train(TARGET_deathRate ~ ., 
+#                   data=fsel,
+#                   method="gbm",
+#                   trControl=trainControl(
+#                     method="repeatedcv",
+#                     number=20,
+#                     repeats = 3,
+#                     allowParallel=T
+#                   ),
+#                 )
+# fselImp <- varImp(trmod)
+# print(fselImp)
 
 features=c(
   "incidenceRate",
@@ -220,9 +220,11 @@ imp_feat<-c("PctPublicCoverageAlone",
 # length(intersect(names(fsel), features))
 # fsel[,features]
 
-eda_feat<-function(apply_feat) {
-  print(GGally::ggpairs(fsel[,apply_feat]))
-  summary(fsel[,apply_feat])
+eda_feat<-function(apply_feat, df, colr) {
+  GGally::ggpairs(df[,apply_feat],
+                        mapping=ggplot2::aes(colour = colr)
+                        )
+  summary(df[,apply_feat])
 }
 
 do_model<-function(apply_feat) {
@@ -243,8 +245,61 @@ do_model<-function(apply_feat) {
   )
 }
 
+df.reg=fsel[,c(30:33)]
+df.reg['region'] = str_split_fixed(names(df.reg)[max.col(df.reg)], '_', 2)[,2]
 
-# eda_feat(features)
+df.bi<-fsel[34:43]
+df.bi['binnedInc']<-sub("^.*_[\\(|\\[](.*),\\s+(.*)]", "\\1_\\2",
+                     names(df.bi)[max.col(df.bi)], perl=T)
+
+eda.df<-cbind(region=df.reg[,c("region")], binnedInc=df.bi[,c("binnedInc")])
+eda.df<-cbind(eda.df, fsel[features][,-c(9:10)])
+eda.df
+
+
+# rank distribution
+# 
+# ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=binnedInc))+ 
+#   geom_bar(position='dodge')+
+#   geom_text(aes(label=..count..),stat='count',position=position_dodge(0.9),vjust=-0.2)+
+#   facet_grid(. ~ region)+
+#   ggtitle("Bar-plot showing rank distribution, separated by gender and discipline")
+ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=binnedInc))+ 
+  geom_bar(position='dodge')+
+  facet_grid(. ~ region)+
+  ggtitle("Bar-plot showing rank distribution, separated by gender and discipline")
+
+#histogram
+ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=binnedInc))+ 
+  geom_density(alpha=0.4)+ 
+  facet_grid(. ~ region)+
+  ggtitle("Density curves showing salary distribution, separated by gender and discipline")
+
+
+
+# boxplots
+ggplot(data=eda.df,aes(x=binnedInc,y=TARGET_deathRate,fill=binnedInc))+ 
+  geom_boxplot(notch=TRUE)+ 
+  facet_grid(. ~ region)+
+  ggtitle("Notched boxplots showing deathRate distribution, separated by region and discipline")
+
+# violinplots
+ggplot(data=eda.df,aes(x=binnedInc,y=TARGET_deathRate,fill=binnedInc))+ 
+  geom_violin()+ 
+  geom_boxplot(fill='darkred',width=0.1,notch=TRUE)+ 
+  geom_point(position='jitter',size=1)+ 
+  facet_grid(. ~ region)+
+  ggtitle("Notched violinplots showing salary distribution, separated by gender and discipline")
+
+ggplot(eda.df,aes(TARGET_deathRate,povertyPercent,colour=region))+
+  geom_point()+geom_rug()
+
+ggpairs(eda.df,mapping=ggplot2::aes(colour = region))
+
+
+
+# eda_feat(intersect(features, names(df)), df, "region")
+
 leapft<-do_model(features)
 
 gbm_feat<-c(
