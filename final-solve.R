@@ -13,6 +13,10 @@ librarian::shelf(rstudioapi,
                  caret,
                  stringr,
                  olsrr,
+                 leaps,
+                 doMC,
+                 gbm,
+                 CombMSC,
                  cran_repo = 'https://cran.r-project.org')
 
 #renv::clean()
@@ -143,10 +147,16 @@ corMtrx <- cor(fsel)
 print(corMtrx)
 highcorr=findCorrelation(corMtrx, cutoff=0.5)
 print(highcorr)
-#fsel[,highcorr]
+# interim[,highcorr]
 
 corr = round(cor(fsel), 2)
 ggcorrplot(corr,title="Correlation heatmap among cancer variables")
+
+
+# # Split data -------------
+# selected<-createDataPartition(interim$TARGET_deathRate,p=.90,list=F)
+# fsel<-interim[selected]
+# ftest<-interim[-selected]
 
 # Attempt3-------
 subset.model=regsubsets(TARGET_deathRate~.,data=fsel,nbest=20,method=c("exhaustive"))
@@ -163,22 +173,40 @@ step.model <- stepAIC(lm(TARGET_deathRate ~ ., data=fsel), direction = "both",
 summary(step.model)
 
 #olsrr
-reg=lm(TARGET_deathRate ~ ., data=fsel)
-summary(reg)
-bestsubset=ols_step_best_subset(reg)
-bestsubset
-allpos=ols_step_all_possible(reg)
-allpos
-plot(allpos)
+# reg=lm(TARGET_deathRate ~ ., data=fsel)
+# summary(reg)
+# bestsubset=ols_step_best_subset(reg)
+# bestsubset
+# allpos=ols_step_all_possible(reg)
+# allpos
+# plot(allpos)
 
-#RandomForest
-rPartMod <- train(TARGET_deathRate ~ ., data=fsel, method="RRF")
-rpartImp <- varImp(rPartMod)
-print(rpartImp)
+#RandomForests
+# registerDoMC(cores=8)
+trmod <- train(TARGET_deathRate ~ ., 
+                  data=fsel,
+                  method="gbm",
+                  trControl=trainControl(
+                    method="repeatedcv",
+                    number=20,
+                    repeats = 3,
+                    allowParallel=T
+                  ),
+                )
+fselImp <- varImp(trmod)
+print(fselImp)
 
-features=c("incidenceRate","povertyPercent","PctHS18_24","PctBachDeg25_Over",
-  "PctPrivateCoverage","PctEmpPrivCoverage","PctOtherRace","PctMarriedHouseholds",
-  "region_Mid West", "region_South",
+features=c(
+  "incidenceRate",
+  "povertyPercent",
+  "PctHS18_24",
+  "PctBachDeg25_Over",
+  "PctPrivateCoverage",
+  "PctEmpPrivCoverage",
+  "PctOtherRace",
+  "PctMarriedHouseholds",
+  "region_Mid West",
+  "region_South",
   "TARGET_deathRate")
 
 imp_feat<-c("PctPublicCoverageAlone",
@@ -192,6 +220,11 @@ imp_feat<-c("PctPublicCoverageAlone",
 # length(intersect(names(fsel), features))
 # fsel[,features]
 
+eda_feat<-function(apply_feat) {
+  print(GGally::ggpairs(fsel[,apply_feat]))
+  summary(fsel[,apply_feat])
+}
+
 do_model<-function(apply_feat) {
   ln=length(apply_feat)
   seq_along(apply_feat[-ln])
@@ -200,23 +233,108 @@ do_model<-function(apply_feat) {
   for(i in seq_along(apply_feat[-ln])){
     models[[i]]<- lm(TARGET_deathRate~.,data=fsel[,apply_feat[c(1:i,ln)]])
   }
-  list(lapply(models,summary),
-  do.call(anova,models)
+  return(
+    list(
+      models,
+      lapply(models,summary),
+      do.call(anova,models),
+      lapply(models, PRESS.lm)
+    )
   )
 }
 
-GGally::ggpairs(fsel[,features])
-summary(fsel[,features])
 
-do_model(features)
-# do_model(imp_feat)
+# eda_feat(features)
+leapft<-do_model(features)
+
+gbm_feat<-c(
+  "incidenceRate",
+  "PctBachDeg25_Over",
+  # "avgDeathsPerYear",
+  # "medIncome",
+  # "PctHS25_Over",
+  # "popEst2015",
+  # "povertyPercent",
+  "PctPublicCoverageAlone",
+  # "avgAnnCount",
+  # "PctPrivateCoverage",
+  "region_West",
+  "region_South",
+  "PctUnemployed16_Over",
+  "PctOtherRace",
+  "PctHS18_24",
+  # "MedianAgeFemale",
+  # "AvgHouseholdSize",
+  # "PctMarriedHouseholds",
+  "PercentMarried",
+  "PctBlack",
+  "TARGET_deathRate"
+)
+do_model(gbm_feat)
+
+
+gbm_feat2<-c(
+  "incidenceRate",
+  "PctBachDeg25_Over",
+  # "avgDeathsPerYear",
+  # "medIncome",
+  # "PctHS25_Over",
+  # "popEst2015",
+  "povertyPercent",
+  "PctPublicCoverageAlone",
+  "avgAnnCount",
+  # "PctPrivateCoverage",
+  "region_West",
+  "region_South",
+  "PctUnemployed16_Over",
+  # "PctOtherRace",
+  # "PctHS18_24",
+  # "MedianAgeFemale",
+  # "AvgHouseholdSize",
+  # "PctMarriedHouseholds",
+  # "PercentMarried",
+  # "PctBlack",
+  "TARGET_deathRate"
+)
+
+extractmodel<-function(mft, modnum) {
+  return(list(mft[[1]][[modnum]],
+              mft[[4]][[modnum]]
+  ))
+}
+
+calcr2jack<-function(pressval) {
+  SSyy=(nrow(fsel)-1)*var(fsel$TARGET_deathRate)
+  return (1-(pressval/SSyy))
+}
+
+# eda_feat(gbm_feat)
+glmft2<-do_model(gbm_feat2)
+glmft2
 
 par(mfrow=c(2,2))
-plot(models[[10]]) 
+
+x<-extractmodel(leapft, 10)
+y<-extractmodel(glmft2, 8)
+
+x.selmod=x[[1]]
+x.pressval=x[[2]]
+
+y.selmod=y[[1]]
+y.pressval=y[[2]]
+
+plot(x.selmod)
+plot(y.selmod)
+
+x.pressval
+y.pressval
+
+calcr2jack(x.pressval)
+calcr2jack(y.pressval)
 
 par(mfrow=c(1,1))
 
-results<-predict(models[[10]],fsel)
+results<-predict(y.selmod,fsel)
 data.frame(results,actual=fsel$TARGET_deathRate) %>%
   ggplot(aes(x=results,y=actual)) + 
   geom_point()+
