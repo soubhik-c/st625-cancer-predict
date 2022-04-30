@@ -17,6 +17,7 @@ librarian::shelf(rstudioapi,
                  doMC,
                  gbm,
                  CombMSC,
+                 cowplot,
                  cran_repo = 'https://cran.r-project.org')
 
 #renv::clean()
@@ -132,8 +133,24 @@ data.table(Column=names(imputed_df[,drp_cols]),
            function(x) shapiro.test(x)$p.value)
            )
 
+hist(fsel$TARGET_deathRate)
+
 # correlation matrix ---------
 fsel=imputed_df[,drp_cols]
+
+corMtrx <- cor(fsel)
+
+colnames(corMtrx)
+highcorr=findCorrelation(corMtrx, names=T, exact=F, cutoff=0.7)
+names(fsel[,highcorr])
+
+dims=length(colnames(corMtrx))
+corrDF <- expand.grid(row = 1:dims, col = 1:dims)
+corrDF$correlation <- as.vector(corMtrx)
+levelplot(correlation ~ row + col, corrDF)
+
+corr = round(cor(fsel), 2)
+ggcorrplot(corr,title="Correlation heatmap among cancer variables")
 
 fsel<-cbind(fsel,
             one_hot(
@@ -142,59 +159,14 @@ fsel<-cbind(fsel,
                 )
               ))
 
-fsel
-corMtrx <- cor(fsel)
-print(corMtrx)
-highcorr=findCorrelation(corMtrx, cutoff=0.5)
-print(highcorr)
-# interim[,highcorr]
-
-corr = round(cor(fsel), 2)
-ggcorrplot(corr,title="Correlation heatmap among cancer variables")
-
-
-# # Split data -------------
-# selected<-createDataPartition(interim$TARGET_deathRate,p=.90,list=F)
-# fsel<-interim[selected]
-# ftest<-interim[-selected]
-
-# Attempt3-------
+# Feature Selection-------
 subset.model=regsubsets(TARGET_deathRate~.,data=fsel,nbest=20,method=c("exhaustive"))
 summary(subset.model)
-# 
+
 plot(subset.model, scale="r2")
 plot(subset.model, scale="adjr2")
 plot(subset.model, scale="bic")
 plot(subset.model, scale="Cp")
-
-# #stepAIC
-# step.model <- stepAIC(lm(TARGET_deathRate ~ ., data=fsel), direction = "both", 
-#                       trace = F)
-# summary(step.model)
-
-#olsrr
-# reg=lm(TARGET_deathRate ~ ., data=fsel)
-# summary(reg)
-# bestsubset=ols_step_best_subset(reg)
-# bestsubset
-# allpos=ols_step_all_possible(reg)
-# allpos
-# plot(allpos)
-
-#RandomForests
-# registerDoMC(cores=8)
-# trmod <- train(TARGET_deathRate ~ ., 
-#                   data=fsel,
-#                   method="gbm",
-#                   trControl=trainControl(
-#                     method="repeatedcv",
-#                     number=20,
-#                     repeats = 3,
-#                     allowParallel=T
-#                   ),
-#                 )
-# fselImp <- varImp(trmod)
-# print(fselImp)
 
 features=c(
   "incidenceRate",
@@ -209,23 +181,62 @@ features=c(
   "region_South",
   "TARGET_deathRate")
 
-imp_feat<-c("PctPublicCoverageAlone",
-            "povertyPercent",
-            "AvgHouseholdSize",
-            "PctUnemployed16_Over",
-            "PctBlack",
-            "PctHS18_24",
-            "TARGET_deathRate")
+# EDA--------------
+df.reg=fsel[,c(30:33)]
+df.reg['region'] = str_split_fixed(names(df.reg)[max.col(df.reg)], '_', 2)[,2]
 
-# length(intersect(names(fsel), features))
-# fsel[,features]
+df.bi<-fsel[34:43]
+df.bi['binnedInc']<-sub("^.*_[\\(|\\[](.*),\\s+(.*)]", "\\1_\\2",
+                     names(df.bi)[max.col(df.bi)], perl=T)
 
-eda_feat<-function(apply_feat, df, colr) {
-  GGally::ggpairs(df[,apply_feat],
-                        mapping=ggplot2::aes(colour = colr)
-                        )
-  summary(df[,apply_feat])
+eda.df<-cbind(region=df.reg[,c("region")], binnedInc=df.bi[,c("binnedInc")])
+eda.df<-cbind(eda.df, fsel[features][,-c(9:10)])
+eda.df
+
+# rank distribution
+ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=binnedInc))+
+  geom_bar(position='dodge')+
+  facet_grid(. ~ region)+
+  ggtitle("Bar-plot showing rank distribution, separated by gender and discipline")
+
+#histogram
+ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=binnedInc))+
+  geom_density(alpha=0.4)+
+  facet_grid(. ~ region)+
+  ggtitle("Density curves showing salary distribution, separated by gender and discipline")
+
+# boxplots
+ggplot(data=eda.df,aes(x=binnedInc,y=TARGET_deathRate,fill=binnedInc))+
+  geom_boxplot(notch=TRUE)+
+  facet_grid(. ~ region)+
+  ggtitle("Notched boxplots showing deathRate distribution, separated by region and discipline")
+
+# violinplots
+ggplot(data=eda.df,aes(x=binnedInc,y=TARGET_deathRate,fill=binnedInc))+
+  geom_violin()+
+  geom_boxplot(fill='darkred',width=0.1,notch=TRUE)+
+  geom_point(position='jitter',size=1)+
+  facet_grid(. ~ region)+
+  ggtitle("Notched violinplots showing salary distribution, separated by gender and discipline")
+
+plotpervar<-function(featrs) {
+  ln=length(featrs)
+  plots.elems<-list()
+  for(i in seq_along(featrs[-ln])) {
+    plots.elems[[i]]<-
+      ggplot(eda.df,aes_string(featrs[c(ln)],featrs[c(i)],colour="region"))+
+      geom_point()+geom_rug()
+  }
+
+  return (plots.elems)
 }
+
+plot_grid(plotlist=plotpervar(intersect(names(eda.df), features)))
+
+ggpairs(eda.df,mapping=ggplot2::aes(colour = region))
+
+
+# Modelling -----------------
 
 do_model<-function(apply_feat) {
   ln=length(apply_feat)
@@ -245,112 +256,7 @@ do_model<-function(apply_feat) {
   )
 }
 
-df.reg=fsel[,c(30:33)]
-df.reg['region'] = str_split_fixed(names(df.reg)[max.col(df.reg)], '_', 2)[,2]
-
-df.bi<-fsel[34:43]
-df.bi['binnedInc']<-sub("^.*_[\\(|\\[](.*),\\s+(.*)]", "\\1_\\2",
-                     names(df.bi)[max.col(df.bi)], perl=T)
-
-eda.df<-cbind(region=df.reg[,c("region")], binnedInc=df.bi[,c("binnedInc")])
-eda.df<-cbind(eda.df, fsel[features][,-c(9:10)])
-eda.df
-
-
-# rank distribution
-# 
-# ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=binnedInc))+ 
-#   geom_bar(position='dodge')+
-#   geom_text(aes(label=..count..),stat='count',position=position_dodge(0.9),vjust=-0.2)+
-#   facet_grid(. ~ region)+
-#   ggtitle("Bar-plot showing rank distribution, separated by gender and discipline")
-ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=binnedInc))+ 
-  geom_bar(position='dodge')+
-  facet_grid(. ~ region)+
-  ggtitle("Bar-plot showing rank distribution, separated by gender and discipline")
-
-#histogram
-ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=binnedInc))+ 
-  geom_density(alpha=0.4)+ 
-  facet_grid(. ~ region)+
-  ggtitle("Density curves showing salary distribution, separated by gender and discipline")
-
-
-
-# boxplots
-ggplot(data=eda.df,aes(x=binnedInc,y=TARGET_deathRate,fill=binnedInc))+ 
-  geom_boxplot(notch=TRUE)+ 
-  facet_grid(. ~ region)+
-  ggtitle("Notched boxplots showing deathRate distribution, separated by region and discipline")
-
-# violinplots
-ggplot(data=eda.df,aes(x=binnedInc,y=TARGET_deathRate,fill=binnedInc))+ 
-  geom_violin()+ 
-  geom_boxplot(fill='darkred',width=0.1,notch=TRUE)+ 
-  geom_point(position='jitter',size=1)+ 
-  facet_grid(. ~ region)+
-  ggtitle("Notched violinplots showing salary distribution, separated by gender and discipline")
-
-ggplot(eda.df,aes(TARGET_deathRate,povertyPercent,colour=region))+
-  geom_point()+geom_rug()
-
-ggpairs(eda.df,mapping=ggplot2::aes(colour = region))
-
-
-
-# eda_feat(intersect(features, names(df)), df, "region")
-
 leapft<-do_model(features)
-
-gbm_feat<-c(
-  "incidenceRate",
-  "PctBachDeg25_Over",
-  # "avgDeathsPerYear",
-  # "medIncome",
-  # "PctHS25_Over",
-  # "popEst2015",
-  # "povertyPercent",
-  "PctPublicCoverageAlone",
-  # "avgAnnCount",
-  # "PctPrivateCoverage",
-  "region_West",
-  "region_South",
-  "PctUnemployed16_Over",
-  "PctOtherRace",
-  "PctHS18_24",
-  # "MedianAgeFemale",
-  # "AvgHouseholdSize",
-  # "PctMarriedHouseholds",
-  "PercentMarried",
-  "PctBlack",
-  "TARGET_deathRate"
-)
-do_model(gbm_feat)
-
-
-gbm_feat2<-c(
-  "incidenceRate",
-  "PctBachDeg25_Over",
-  # "avgDeathsPerYear",
-  # "medIncome",
-  # "PctHS25_Over",
-  # "popEst2015",
-  "povertyPercent",
-  "PctPublicCoverageAlone",
-  "avgAnnCount",
-  # "PctPrivateCoverage",
-  "region_West",
-  "region_South",
-  "PctUnemployed16_Over",
-  # "PctOtherRace",
-  # "PctHS18_24",
-  # "MedianAgeFemale",
-  # "AvgHouseholdSize",
-  # "PctMarriedHouseholds",
-  # "PercentMarried",
-  # "PctBlack",
-  "TARGET_deathRate"
-)
 
 extractmodel<-function(mft, modnum) {
   return(list(mft[[1]][[modnum]],
@@ -363,38 +269,23 @@ calcr2jack<-function(pressval) {
   return (1-(pressval/SSyy))
 }
 
-# eda_feat(gbm_feat)
-glmft2<-do_model(gbm_feat2)
-glmft2
-
 par(mfrow=c(2,2))
-
 x<-extractmodel(leapft, 10)
-y<-extractmodel(glmft2, 8)
 
 x.selmod=x[[1]]
 x.pressval=x[[2]]
 
-y.selmod=y[[1]]
-y.pressval=y[[2]]
-
 plot(x.selmod)
-plot(y.selmod)
 
 x.pressval
-y.pressval
 
 calcr2jack(x.pressval)
-calcr2jack(y.pressval)
 
 par(mfrow=c(1,1))
-
-results<-predict(y.selmod,fsel)
+results<-predict(x.selmod,fsel)
 data.frame(results,actual=fsel$TARGET_deathRate) %>%
   ggplot(aes(x=results,y=actual)) + 
   geom_point()+
   stat_smooth(method="lm",show.legend = T)
 
-
-hist(fsel$TARGET_deathRate)
 
