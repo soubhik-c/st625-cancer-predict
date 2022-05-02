@@ -133,34 +133,33 @@ data.table(Column=names(imputed_df[,drp_cols]),
            function(x) shapiro.test(x)$p.value)
            )
 
-hist(fsel$TARGET_deathRate)
+hist(imputed_df$TARGET_deathRate)
 
 # correlation matrix ---------
-fsel=imputed_df[,drp_cols]
+cor.df=imputed_df[,drp_cols]
 
-corMtrx <- cor(fsel)
+corMtrx <- cor(cor.df)
 
 colnames(corMtrx)
 highcorr=findCorrelation(corMtrx, names=T, exact=F, cutoff=0.7)
-names(fsel[,highcorr])
+names(cor.df[,highcorr])
 
 dims=length(colnames(corMtrx))
 corrDF <- expand.grid(row = 1:dims, col = 1:dims)
 corrDF$correlation <- as.vector(corMtrx)
 levelplot(correlation ~ row + col, corrDF)
 
-corr = round(cor(fsel), 2)
+corr = round(cor(cor.df), 2)
 ggcorrplot(corr,title="Correlation heatmap among cancer variables")
 
-fsel<-cbind(fsel,
-            one_hot(
-              as.data.table(
-                lapply(imputed_df[,c("region", "binnedInc")], as.factor)
-                )
-              ))
 
 # Feature Selection-------
-subset.model=regsubsets(TARGET_deathRate~.,data=fsel,nbest=20,method=c("exhaustive"))
+fsel.df <- as.data.frame(unclass(imputed_df), stringsAsFactors = TRUE)
+names(fsel.df)
+fsel<-fsel.df[,-c(13,32,33)]
+names(fsel)
+
+subset.model=regsubsets(TARGET_deathRate~., really.big=T, data=fsel,nbest=20,method=c("exhaustive"))
 summary(subset.model)
 
 plot(subset.model, scale="r2")
@@ -170,49 +169,37 @@ plot(subset.model, scale="Cp")
 
 features=c(
   "incidenceRate",
-  "povertyPercent",
   "PctHS18_24",
   "PctBachDeg25_Over",
-  "PctPrivateCoverage",
-  "PctEmpPrivCoverage",
+  "PctPublicCoverageAlone",
   "PctOtherRace",
   "PctMarriedHouseholds",
-  "region_Mid West",
-  "region_South",
+  "region",
   "TARGET_deathRate")
 
 # EDA--------------
-df.reg=fsel[,c(30:33)]
-df.reg['region'] = str_split_fixed(names(df.reg)[max.col(df.reg)], '_', 2)[,2]
-
-df.bi<-fsel[34:43]
-df.bi['binnedInc']<-sub("^.*_[\\(|\\[](.*),\\s+(.*)]", "\\1_\\2",
-                     names(df.bi)[max.col(df.bi)], perl=T)
-
-eda.df<-cbind(region=df.reg[,c("region")], binnedInc=df.bi[,c("binnedInc")])
-eda.df<-cbind(eda.df, fsel[features][,-c(9:10)])
-eda.df
+eda.df<-fsel[,features]
 
 # rank distribution
-ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=binnedInc))+
+ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=PctOtherRace))+
   geom_bar(position='dodge')+
   facet_grid(. ~ region)+
   ggtitle("Bar-plot showing rank distribution, separated by gender and discipline")
 
 #histogram
-ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=binnedInc))+
+ggplot(data=eda.df,aes(x=TARGET_deathRate,fill=PctOtherRace))+
   geom_density(alpha=0.4)+
   facet_grid(. ~ region)+
   ggtitle("Density curves showing salary distribution, separated by gender and discipline")
 
 # boxplots
-ggplot(data=eda.df,aes(x=binnedInc,y=TARGET_deathRate,fill=binnedInc))+
+ggplot(data=eda.df,aes(x=PctOtherRace,y=TARGET_deathRate,fill=PctOtherRace))+
   geom_boxplot(notch=TRUE)+
   facet_grid(. ~ region)+
   ggtitle("Notched boxplots showing deathRate distribution, separated by region and discipline")
 
 # violinplots
-ggplot(data=eda.df,aes(x=binnedInc,y=TARGET_deathRate,fill=binnedInc))+
+ggplot(data=eda.df,aes(x=PctOtherRace,y=TARGET_deathRate,fill=PctOtherRace))+
   geom_violin()+
   geom_boxplot(fill='darkred',width=0.1,notch=TRUE)+
   geom_point(position='jitter',size=1)+
@@ -257,6 +244,9 @@ do_model<-function(apply_feat) {
 }
 
 leapft<-do_model(features)
+leapft
+
+contrasts(fsel$region)
 
 extractmodel<-function(mft, modnum) {
   return(list(mft[[1]][[modnum]],
@@ -270,7 +260,7 @@ calcr2jack<-function(pressval) {
 }
 
 par(mfrow=c(2,2))
-x<-extractmodel(leapft, 10)
+x<-extractmodel(leapft, 7)
 
 x.selmod=x[[1]]
 x.pressval=x[[2]]
@@ -287,5 +277,6 @@ data.frame(results,actual=fsel$TARGET_deathRate) %>%
   ggplot(aes(x=results,y=actual)) + 
   geom_point()+
   stat_smooth(method="lm",show.legend = T)
+
 
 
