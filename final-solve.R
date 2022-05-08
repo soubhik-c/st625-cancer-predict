@@ -14,13 +14,14 @@ librarian::shelf(rstudioapi,
                  stringr,
                  olsrr,
                  leaps,
-                 doMC,
-                 gbm,
                  CombMSC,
                  cowplot,
+                 stats,
+                 ggplotify,
+                 vcd,
                  cran_repo = 'https://cran.r-project.org')
 
-#renv::clean()
+# renv::clean()
 
 # init --------------------------------------------------------------------
 set.seed(12673)
@@ -125,7 +126,7 @@ map_states <- function(s) {
 imputed_df['region']=sapply(imputed_df$state, map_states)
 
 # Check for normality ----------------
-plot(Hmisc::describe(imputed_df)) 
+Hmisc::describe(imputed_df)
 names(imputed_df)
 drp_cols=-c(9,13,32:34)
 data.table(Column=names(imputed_df[,drp_cols]),
@@ -135,8 +136,24 @@ data.table(Column=names(imputed_df[,drp_cols]),
 
 hist(imputed_df$TARGET_deathRate)
 
+
 # correlation matrix ---------
 cor.df=imputed_df[,drp_cols]
+# as.ggplot(~mosaic(cor.df))
+# 
+# as.ggplot(densityplot(~medIncome|TARGET_deathRate, data=cor.df))
+# 
+# 
+# glimpse(cor.df)
+
+# library(dplyr)
+# 
+# as_tibble(df) %>% 
+#   mutate(across(everything(), .fn = function(x) cut(x, quantile(x, 0:4/4))))
+
+# x<-cor.df$medIncome
+# cor.df['qcut']<-cut(x, quantile(x, 0:4/4))
+# as.ggplot(densityplot(~qcut|TARGET_deathRate, data=cor.df))
 
 corMtrx <- cor(cor.df)
 
@@ -159,6 +176,7 @@ names(fsel.df)
 fsel<-fsel.df[,-c(13,32,33)]
 names(fsel)
 
+
 subset.model=regsubsets(TARGET_deathRate~., really.big=T, data=fsel,nbest=20,method=c("exhaustive"))
 summary(subset.model)
 
@@ -178,6 +196,12 @@ features=c(
   "TARGET_deathRate")
 
 # EDA--------------
+
+ggplot(subset(imputed_df),aes(x=povertyPercent,y=TARGET_deathRate,colour=region))+
+  geom_point()+geom_rug()+ geom_abline(intercept = 147, slope = 2, color="blue",
+                                       linetype="dotted", size=1)+
+  ggtitle("Percent of Poverty and Mortality Rate by Region, separated by rank")
+
 eda.df<-fsel[,features]
 
 # rank distribution
@@ -198,13 +222,14 @@ ggplot(data=eda.df,aes(x=PctOtherRace,y=TARGET_deathRate,fill=PctOtherRace))+
   facet_grid(. ~ region)+
   ggtitle("Notched boxplots showing deathRate distribution, separated by region and discipline")
 
+names(eda.df)
 # violinplots
-ggplot(data=eda.df,aes(x=PctOtherRace,y=TARGET_deathRate,fill=PctOtherRace))+
+ggplot(data=eda.df,aes(x=PctPublicCoverageAlone,y=TARGET_deathRate,fill=region))+
   geom_violin()+
   geom_boxplot(fill='darkred',width=0.1,notch=TRUE)+
   geom_point(position='jitter',size=1)+
   facet_grid(. ~ region)+
-  ggtitle("Notched violinplots showing salary distribution, separated by gender and discipline")
+  ggtitle("violinplots showing death rate distribution, separated by PctPublicCoverageAlone and region")
 
 plotpervar<-function(featrs) {
   ln=length(featrs)
@@ -265,7 +290,13 @@ x<-extractmodel(leapft, 7)
 x.selmod=x[[1]]
 x.pressval=x[[2]]
 
+summary(x.selmod)
 plot(x.selmod)
+
+summary(x.selmod)
+anova(x.selmod)
+AIC(x.selmod)
+ols_coll_diag(x.selmod)
 
 x.pressval
 
